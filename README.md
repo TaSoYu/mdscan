@@ -32,11 +32,27 @@ mdscan -c 192.168.1.0/24 -p 1-10000 [-t 1.5s] [-j 256] [-f text|json] [-o out.tx
 
 | 文件 | 职责 |
 | --- | --- |
-| `main.go` | CLI 参数解析与流程编排：mDNS 发现 + 端口扫描 + 过滤 + 输出 |
+| `main.go` | CLI 参数解析与流程编排：mDNS 发现 + HTTP 深度探测 + 端口扫描补盲 + 过滤 + 输出 |
 | `internal/mdns/mdns.go` | 纯标准库 mDNS 客户端：构造 DNS 查询、解析响应（含域名压缩指针），提取 PTR/SRV/TXT/A/AAAA，并聚合为资产条目 |
 | `internal/scanner/scanner.go` | IP 网段展开（CIDR/起止）与端口范围解析，以及并发 TCP connect 扫描 |
 | `internal/probe/probe.go` | HTTP(S) 主动 banner 探测：`path=/`、`Server`、页面 `title` |
 | `internal/output/output.go` | 聚合去重 + 文本输出（对齐参考示例）/ JSON 输出 |
+| `internal/mockmdns/mockmdns.go` | 构造模拟 QNAP NAS 的 mDNS 响应（PTR/SRV/TXT/A/AAAA），供发布器与测试复用 |
+| `cmd/mockmdns/main.go` | 模拟 mDNS 发布器：周期广播示例设备，用于无真实设备时的端到端验证 |
+
+## 验证
+
+```bash
+# 单元测试（含 banner 深度端到端校验）
+go test ./...
+
+# 无真实设备时的端到端演示：
+# 终端 A：广播模拟的 QNAP NAS
+go run ./cmd/mockmdns -i 1s
+
+# 终端 B：扫描并观察对齐示例的输出
+go run . -c 192.168.1.0/24 -p 1-10000 -t 3s
+```
 
 ## 输出示例（对齐参考格式）
 
