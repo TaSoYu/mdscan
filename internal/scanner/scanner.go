@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+// maxExpand caps the number of hosts an IP range may expand to, preventing
+// accidental OOM for inputs like 0.0.0.0/0.
+const maxExpand = 1 << 16
+
 func ipToU32(ip net.IP) uint32 {
 	ip = ip.To4()
 	return uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
@@ -37,7 +41,14 @@ func ParseIPs(s string) ([]string, error) {
 			return nil, fmt.Errorf("only ipv4 cidr is supported, got %q", s)
 		}
 		start := ipToU32(ip.Mask(ipnet.Mask).To4())
-		size := uint32(1) << (32 - uint(ones))
+		hostBits := uint(32 - ones)
+		if hostBits >= 32 {
+			return nil, fmt.Errorf("cidr %q is too large to expand", s)
+		}
+		size := uint32(1) << hostBits
+		if size > maxExpand {
+			return nil, fmt.Errorf("cidr %q expands to %d hosts, over the %d limit", s, size, maxExpand)
+		}
 		out := make([]string, 0, size)
 		for i := uint32(0); i < size; i++ {
 			out = append(out, u32ToIP(start+i).String())
@@ -55,7 +66,11 @@ func ParseIPs(s string) ([]string, error) {
 		if b < a {
 			a, b = b, a
 		}
-		var out []string
+		count := uint64(b) - uint64(a) + 1
+		if count > maxExpand {
+			return nil, fmt.Errorf("ip range %q spans %d hosts, over the %d limit", s, count, maxExpand)
+		}
+		out := make([]string, 0, count)
 		for v := a; ; v++ {
 			out = append(out, u32ToIP(v).String())
 			if v == b {
