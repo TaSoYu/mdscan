@@ -14,6 +14,7 @@ import (
 
 // Text writes the reference-style text report.
 func Text(w io.Writer, assets []mdns.Asset, serviceTypes []string) {
+	assets = dedupAssets(assets)
 	fmt.Fprintln(w, "services:")
 	groups := groupAssets(assets)
 	keys := make([]string, 0, len(groups))
@@ -35,6 +36,13 @@ func Text(w io.Writer, assets []mdns.Asset, serviceTypes []string) {
 
 // JSON writes a machine-readable report.
 func JSON(w io.Writer, assets []mdns.Asset, serviceTypes []string) {
+	assets = dedupAssets(assets)
+	if assets == nil {
+		assets = []mdns.Asset{}
+	}
+	if serviceTypes == nil {
+		serviceTypes = []string{}
+	}
 	payload := map[string]any{
 		"assets":       assets,
 		"serviceTypes": serviceTypes,
@@ -42,6 +50,26 @@ func JSON(w io.Writer, assets []mdns.Asset, serviceTypes []string) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(payload)
+}
+
+// dedupAssets removes entries sharing the same ip:port:proto:service, keeping
+// the first occurrence and merging banner info into it when it was empty.
+func dedupAssets(assets []mdns.Asset) []mdns.Asset {
+	seen := map[string]int{}
+	out := assets[:0]
+	for _, a := range assets {
+		key := fmt.Sprintf("%s|%d|%s|%s", a.IP, a.Port, a.Proto, a.Service)
+		if i, ok := seen[key]; ok {
+			if len(out[i].Banner) == 0 && len(a.Banner) > 0 {
+				out[i].Banner = a.Banner
+				out[i].BannerOrder = a.BannerOrder
+			}
+			continue
+		}
+		seen[key] = len(out)
+		out = append(out, a)
+	}
+	return out
 }
 
 func groupAssets(assets []mdns.Asset) map[string][]mdns.Asset {
@@ -84,7 +112,11 @@ func writeAsset(w io.Writer, a mdns.Asset) {
 func extraFields(a mdns.Asset) []string {
 	switch a.Service {
 	case "http":
-		out := []string{"path=/"}
+		path := a.Banner["path"]
+		if path == "" {
+			path = "/"
+		}
+		out := []string{"path=" + path}
 		for _, k := range a.BannerOrder {
 			if k == "path" || k == "server" {
 				continue
