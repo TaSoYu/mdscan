@@ -536,6 +536,10 @@ func (c *collector) assets() []Asset {
 		}
 		for _, kv := range inst.txt {
 			k, v, ok := strings.Cut(kv, "=")
+			if ok && strings.EqualFold(k, "mac") {
+				a.MAC = v
+				continue
+			}
 			if ok {
 				a.Banner[k] = v
 				a.BannerOrder = append(a.BannerOrder, k)
