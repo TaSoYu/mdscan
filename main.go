@@ -7,7 +7,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"mdscan/internal/mdns"
@@ -54,27 +56,44 @@ func main() {
 		assets, serviceTypes = mdns.Discover(mdns.Options{Timeout: *timeout})
 	}
 
-	if !*noScan && len(ipList) > 0 && len(portList) > 0 {
-		for _, op := range scanner.ScanPorts(ipList, portList, *timeout, *concurrency) {
-			assets = append(assets, mdns.Asset{
-				IP:       op.IP,
-				Port:     op.Port,
-				Proto:    "tcp",
-				Host:     op.IP,
-				Instance: op.IP,
-				Service:  "tcp",
-			})
-		}
-	}
-
+	// Enrich mDNS-discovered HTTP(S) services with a real banner probe.
 	for i := range assets {
-		if assets[i].Service != "tcp" {
+		if assets[i].Service != "http" || assets[i].IP == "" || assets[i].Port <= 0 {
 			continue
 		}
 		if r := probe.HTTP(assets[i].IP, assets[i].Port, *timeout); r != nil {
-			assets[i].Service = "http"
 			assets[i].Banner = map[string]string{"path": r.Path, "server": r.Server, "title": r.Title}
 			assets[i].BannerOrder = []string{"path", "server", "title"}
+		}
+	}
+
+	// The port scan only fills gaps: ports already classified by mDNS win.
+	covered := map[string]bool{}
+	for _, a := range assets {
+		if a.IP != "" && a.Port > 0 {
+			covered[net.JoinHostPort(a.IP, strconv.Itoa(a.Port))] = true
+		}
+	}
+
+	if !*noScan && len(ipList) > 0 && len(portList) > 0 {
+		for _, op := range scanner.ScanPorts(ipList, portList, *timeout, *concurrency) {
+			key := net.JoinHostPort(op.IP, strconv.Itoa(op.Port))
+			if covered[key] {
+				continue
+			}
+			if r := probe.HTTP(op.IP, op.Port, *timeout); r != nil {
+				assets = append(assets, mdns.Asset{
+					IP:          op.IP,
+					Port:        op.Port,
+					Proto:       "tcp",
+					Host:        op.IP,
+					Instance:    op.IP,
+					Service:     "http",
+					Banner:      map[string]string{"path": r.Path, "server": r.Server, "title": r.Title},
+					BannerOrder: []string{"path", "server", "title"},
+				})
+				covered[key] = true
+			}
 		}
 	}
 
