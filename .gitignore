@@ -1,0 +1,8 @@
+# Go build cache / module cache (local)
+/.gocache/
+/.gomodcache/
+/.gopath/
+
+# build artifacts
+*.exe
+mdscan
